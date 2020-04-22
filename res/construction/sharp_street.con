@@ -1,0 +1,69 @@
+local func = require "rtb/func"
+local coor = require "rtb/coor"
+local pipe = require "rtb/pipe"
+local dump = require "luadump"
+
+function data()
+    return {
+        type = "RAIL_DEPOT",
+        description = {
+            name = "SHARP_STREET",
+            description = ""
+        },
+        availability = {
+            yearFrom = 1800,
+            yearTo = 1800
+        },
+        order = 100,
+        skipCollision = true,
+        autoRemovable = false,
+        updateFn = function(params)
+            local edgeLists =
+                pipe.new
+                + func.map(params.replace, function(seg)
+                    return {
+                        type = "STREET",
+                        params = {
+                            type = seg.street,
+                            tramTrackType = seg.hasTram and "ELECTRIC" or "NO"
+                        },
+                        edges = seg.edge,
+                        snapNodes = func.filter({seg.snap0 and 0 or false, seg.snap1 and 1 or false}, pipe.noop()),
+                        freeNodes = params.isFinal and {0, 1} or {}
+                    }
+                end
+                )
+                + func.map(params.new, function(seg)
+                    return {
+                        isNew = true,
+                        type = "STREET",
+                        params = {
+                            type = seg.street,
+                            tramTrackType = seg.hasTram and "ELECTRIC" or "NO"
+                        },
+                        edges = seg.edge,
+                        snapNodes = func.filter({seg.snap0 and 0 or false, seg.snap1 and 1 or false}, pipe.noop()),
+                        freeNodes = params.isFinal and {0, 1} or {}
+                    }
+                end
+            )
+            dump()(edgeLists)
+            return {
+                edgeLists = edgeLists,
+                terrainAlignmentLists = {
+                    {
+                        type = "EQUAL",
+                        faces = {}
+                    }
+                },
+                models = {
+                    {
+                        id = "asset/icon/marker_exclamation.mdl",
+                        transf = coor.I()
+                    }
+                },
+                groundFaces = {}
+            }
+        end
+    }
+end
