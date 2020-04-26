@@ -16,6 +16,8 @@ Just switch parallel mode and drag the road, the mod will convert them into two 
 There's option order the mod to convert the road to equivalant one-way roads or just generate parallel road of same type. There is also an option to change the spacing between two roads generated, please note if the spacing is larger that the original road created, the original raod will be kept after built.
 
 This mod works only for vanilla roads from the game and can be safely removed at any time.
+This mod may cause crashes after build, but with unidentified reason, I will try to make it perfect in the following time.
+(I though at first this mod can be done in one day, but in fact it took me 3 weeks becasue of such crashes)
 
 -----------------------------------------
 
@@ -40,6 +42,7 @@ Changez simplement de mode parallèle et faites glisser la route, le mod les con
 Il existe une option pour que le mod convertisse la route en routes à sens unique équivalentes ou génère simplement deux routes en parallèles du même type. Il y a aussi une option pour changer l'espacement entre deux routes générées, veuillez noter que si l'espacement est plus grand que la route d'origine créée, la route d'origine sera conservée après la construction.
 
 Ce mod ne fonctionne que pour les routes originales du jeu et peut être désactivé en toute sécurité à tout moment.
+Ce mod pourrait planter le jeux après la construction, avec des causes non-identifié, je vais éssyer de les corriger plus tard.
 
 -----------------------------------------
 
@@ -62,7 +65,8 @@ local descCN = [[本模组可以帮助玩家建造原游戏无法或者很难建
 该模式可以在新建道路后将其自动转换为两条平行的道路。该模式下有一个选项，可以设定是直接创建两条相同类型的道路还是转换为同样宽度的单行道。此外还有一个选项用于设置平行道路的间距。
 注意如果平行道路间距大于原道路，则原道路会自动保留。
 
-本模组只对游戏原装道路有效，并且可以随时移除。]]
+本模组只对游戏原装道路有效，并且可以随时移除。
+本模组可能在建造道路后引发游戏崩溃，但是目前不清楚原因，我会在后续更新中解决这些问题。]]
 
 local descTC = [[本模組可以幫助玩家建造原遊戲無法或者很難建造的道路佈局
 目前有兩種功能：
@@ -80,7 +84,8 @@ local descTC = [[本模組可以幫助玩家建造原遊戲無法或者很難建
 該模式可以在新建道路後將其自動轉換為兩條平行的道路。該模式下有一個選項，可以設定是直接創建兩條相同類型的道路還是轉換為同樣寬度的單行道。此外還有一個選項用於設置平行道路的間距。
 注意如果平行道路間距大於原道路，則原道路會自動保留。
 
-本模組只對遊戲原裝道路有效，並且可以隨時移除。]]
+本模組只對遊戲原裝道路有效，並且可以隨時移除。
+本模組可能在建造道路後引發遊戲崩潰，但是目前不清楚原因，我會在後續更新中解決這些問題。]]
 
 function data()
     return {

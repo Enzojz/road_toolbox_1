@@ -1,7 +1,7 @@
 local func = require "rtb/func"
 local coor = require "rtb/coor"
 local pipe = require "rtb/pipe"
-local dump = require "luadump"
+-- local dump = require "luadump"
 
 function data()
     return {
@@ -47,7 +47,7 @@ function data()
                     }
                 end
             )
-            dump()(edgeLists)
+            
             return {
                 edgeLists = edgeLists,
                 terrainAlignmentLists = {

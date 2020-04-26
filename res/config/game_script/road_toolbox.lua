@@ -1,4 +1,4 @@
-local dump = require "luadump"
+-- local dump = require "luadump"
 local coor = require "rtb/coor"
 local func = require "rtb/func"
 local pipe = require "rtb/pipe"
@@ -6,7 +6,7 @@ local pipe = require "rtb/pipe"
 local sutil = require "streetutil"
 local vec3 = require "vec3"
 
-local dbg = require("LuaPanda")
+-- local dbg = require("LuaPanda")
 
 local state = {
     use = false,
@@ -233,7 +233,7 @@ local function searchSharpEdge(newId, replace, remove)
     end
 end
 
-local buildSharp = function(newSegments)
+local buildSharp = function(newSegments, checkBegin, checkEnd)
     local newId = func.map(newSegments, pipe.select("id"))
     local replace = {forward = {}, backward = {}}
     local remove = {}
@@ -272,7 +272,7 @@ local buildSharp = function(newSegments)
     segInfo =
         pipe.new
         * segInfo
-        * pipe.filter(function(seg) return seg and coor.new(seg.edge.vec1):normalized():dot(coor.new(seg.edge.vec0):normalized()) < 0.999 end)
+        * pipe.filter(function(seg) return seg end)
         * pipe.map(function(seg)
             local pos0, pos1 = coor.new(seg.edge.pos0), coor.new(seg.edge.pos1)
             local vec = pos1 - pos0
@@ -290,10 +290,18 @@ local buildSharp = function(newSegments)
     if #segInfo == 1 then
         local seg = segInfo[1]
         
-        if
-            searchSharpEdge(seg.edge.node0, coor.new(seg.edge.vec0), seg.length) and
-            searchSharpEdge(seg.edge.node1, -coor.new(seg.edge.vec1), seg.length)
-        then
+        local checkFn = {
+            function() return searchSharpEdge(seg.edge.node0, coor.new(seg.edge.vec0), seg.length) end,
+            function() return searchSharpEdge(seg.edge.node1, -coor.new(seg.edge.vec1), seg.length) end
+        }
+        
+        local check = false
+        if checkBegin and checkEnd then check = checkFn[1]() and checkFn[2]()
+        elseif checkBegin then check = checkFn[1]()
+        elseif checkEnd then check = checkFn[2]()
+        end
+        
+        if check then
             for id, _ in pairs(replace.forward) do
                 if func.contains(remove, id) then
                     replace.forward[id] = false
@@ -313,6 +321,7 @@ local buildSharp = function(newSegments)
                 end
             )
             local replace = func.concat(replace.backward, func.filter(func.values(replace.forward), pipe.noop()))
+            
             local id = game.interface.buildConstruction("sharp_street.con", {new = new, replace = replace}, coor.I())
             game.interface.setPlayer(id, game.interface.getPlayer())
             game.interface.upgradeConstruction(id, "sharp_street.con", {new = new, replace = replace, isFinal = true})
@@ -379,9 +388,32 @@ local buildParallel = function(newSegments)
     game.interface.bulldoze(id)
 end
 
+local function exportSeg(nodes, seg)
+    local node0 = nodes[seg.comp.node0]
+    local node1 = nodes[seg.comp.node1]
+    local snap0 = not node0
+    local snap1 = not node1
+    
+    local edge = {
+        pos0 = node0 or (game.interface.getEntity(seg.comp.node0).position),
+        pos1 = node1 or (game.interface.getEntity(seg.comp.node1).position),
+        vec0 = {seg.comp.tangent0[1], seg.comp.tangent0[2], seg.comp.tangent0[3]},
+        vec1 = {seg.comp.tangent1[1], seg.comp.tangent1[2], seg.comp.tangent1[3]},
+        node0 = seg.comp.node0,
+        node1 = seg.comp.node1
+    }
+    
+    return {
+        id = seg.entity,
+        edge = edge,
+        snap0 = snap0,
+        snap1 = snap1,
+    }
+end
+
 local script = {
     handleEvent = function(src, id, name, param)
-        dbg.start("127.0.0.1", 8818)
+        -- dbg.start("127.0.0.1", 8818)
         if (id == "__edgeTool__" and param.sender ~= "stb") then
             if (name == "off") then
                 state.use = false
@@ -400,7 +432,7 @@ local script = {
             elseif (name == "distance") then
                 state.distance = state.distance + param.step
             elseif (name == "sharp") then
-                buildSharp(param.newSegments)
+                buildSharp(param.newSegments, table.unpack(param.check))
             elseif (name == "parallel") then
                 buildParallel(param.newSegments)
             end
@@ -442,7 +474,6 @@ local script = {
     guiHandleEvent = function(_, name, param)
         if name == "builder.apply" then
             local proposal = param.proposal.proposal
-            dump()(proposal)
             if
                 state.use == 2
                 and proposal.addedSegments
@@ -464,27 +495,8 @@ local script = {
                 for i = 1, #proposal.addedSegments do
                     local seg = proposal.addedSegments[i]
                     if seg.type == 0 then
-                        local node0 = nodes[seg.comp.node0]
-                        local node1 = nodes[seg.comp.node1]
-                        local snap0 = not node0
-                        local snap1 = not node1
-                        
-                        local edge = {
-                            pos0 = node0 or (game.interface.getEntity(seg.comp.node0).position),
-                            pos1 = node1 or (game.interface.getEntity(seg.comp.node1).position),
-                            vec0 = {seg.comp.tangent0[1], seg.comp.tangent0[2], seg.comp.tangent0[3]},
-                            vec1 = {seg.comp.tangent1[1], seg.comp.tangent1[2], seg.comp.tangent1[3]},
-                            node0 = seg.comp.node0,
-                            node1 = seg.comp.node1
-                        }
-                        
-                        table.insert(newSegments,
-                            {
-                                id = seg.entity,
-                                edge = edge,
-                                snap0 = snap0,
-                                snap1 = snap1
-                            })
+                        local seg = exportSeg(nodes, seg)
+                        table.insert(newSegments, seg)
                     end
                 end
                 
@@ -535,88 +547,37 @@ local script = {
                 
                 local function trackBack(ref, result, segId, isBegin)
                     local nextNode = isBegin and ref[segId].comp.node1 or ref[segId].comp.node0
+                    local candidates = {}
                     for id, seg in pairs(ref) do
                         if id ~= segId then
                             if seg.comp.node0 == nextNode then
-                                return trackBack(ref,
-                                    result
-                                    / {
-                                        id = segId,
-                                        isBegin = isBegin,
-                                        node0 = ref[segId].comp.node0,
-                                        node1 = ref[segId].comp.node1
-                                    },
-                                    id, true)
+                                table.insert(candidates, {id, true})
                             elseif seg.comp.node1 == nextNode then
-                                return trackBack(ref,
-                                    result /
-                                    {
-                                        id = segId,
-                                        isBegin = isBegin,
-                                        node0 = ref[segId].comp.node0,
-                                        node1 = ref[segId].comp.node1
-                                    },
-                                    id, false)
+                                table.insert(candidates, {id, false})
                             end
                         end
                     end
-                    return {
-                        lastNode = nextNode,
-                        isLastNodeNew = nodes[nextNode] ~= nil,
-                        result = result /
-                        {
-                            id = segId,
-                            isBegin = isBegin,
-                            node0 = ref[segId].comp.node0,
-                            node1 = ref[segId].comp.node1
+                    if #candidates == 1 then
+                        return trackBack(ref, result / {id = segId, isBegin = isBegin}, table.unpack(candidates[1]))
+                    else
+                        return {
+                            lastNode = nextNode,
+                            isLastNodeNew = nodes[nextNode] ~= nil,
+                            result = result / {id = segId, isBegin = isBegin}
                         }
-                    }
+                    end
                 end
                 
                 
-                local preProcForSend = function(result)
-                    local newSegments = func.map(result,
+                local preProcForSend = function(newSeg, checkBegin, checkEnd)
+                    local newSegments = func.map(newSeg,
                         function(r)
-                            local seg = added[r.id]
-                            
-                            local node0 = nodes[seg.comp.node0]
-                            local node1 = nodes[seg.comp.node1]
-                            local snap0 = not node0
-                            local snap1 = not node1
-                            
-                            local edge = {
-                                pos0 = node0 or (game.interface.getEntity(seg.comp.node0).position),
-                                pos1 = node1 or (game.interface.getEntity(seg.comp.node1).position),
-                                vec0 = {seg.comp.tangent0[1], seg.comp.tangent0[2], seg.comp.tangent0[3]},
-                                vec1 = {seg.comp.tangent1[1], seg.comp.tangent1[2], seg.comp.tangent1[3]},
-                                node0 = seg.comp.node0,
-                                node1 = seg.comp.node1
-                            }
-                            
-                            return {
-                                id = seg.entity,
-                                edge = edge,
-                                snap0 = snap0,
-                                snap1 = snap1,
-                                isBegin = r.isBegin
-                            }
+                            local seg = exportSeg(nodes, added[r.id])
+                            seg.isBegin = r.isBegin
+                            return seg
                         end)
                     if #newSegments > 0 then
-                        local isRev = not newSegments[1].isBegin
-                        if isRev then
-                            newSegments = func.map(newSegments,
-                                function(seg)
-                                    local edge = seg.edge
-                                    if seg.isBegin then
-                                        edge.pos0, edge.pos1 = edge.pos1, edge.pos0
-                                        edge.node0, edge.node1 = edge.node1, edge.node0
-                                        edge.vec0, edge.vec1 = (-coor.new(edge.vec1)):toTuple(), (-coor.new(edge.vec0)):toTuple()
-                                        snap0, snap1 = snap1, snap0
-                                    end
-                                    return func.with(seg, {edge = edge})
-                                end)
-                            newSegments = func.rev(newSegments)
-                        else
+                        if newSegments[1].isBegin then
                             newSegments =
                                 func.map(newSegments, function(seg)
                                     local edge = seg.edge
@@ -624,27 +585,47 @@ local script = {
                                         edge.pos0, edge.pos1 = edge.pos1, edge.pos0
                                         edge.node0, edge.node1 = edge.node1, edge.node0
                                         edge.vec0, edge.vec1 = (-coor.new(edge.vec1)):toTuple(), (-coor.new(edge.vec0)):toTuple()
-                                        snap0, snap1 = snap1, snap0
+                                        seg.snap0, seg.snap1 = seg.snap1, seg.snap0
                                     end
                                     return func.with(seg, {edge = edge})
                                 end)
+                        else
+                            newSegments = func.map(newSegments,
+                                function(seg)
+                                    local edge = seg.edge
+                                    if seg.isBegin then
+                                        edge.pos0, edge.pos1 = edge.pos1, edge.pos0
+                                        edge.node0, edge.node1 = edge.node1, edge.node0
+                                        edge.vec0, edge.vec1 = (-coor.new(edge.vec1)):toTuple(), (-coor.new(edge.vec0)):toTuple()
+                                        seg.snap0, seg.snap1 = seg.snap1, seg.snap0
+                                    end
+                                    return func.with(seg, {edge = edge})
+                                end)
+                            newSegments = func.rev(newSegments)
+                            checkBegin, checkEnd = checkEnd, checkBegin
                         end
-                        
-                        game.interface.sendScriptEvent("__roadtoolbox_", "sharp", {newSegments = newSegments})
+                        game.interface.sendScriptEvent("__roadtoolbox_", "sharp", {newSegments = newSegments, check = {checkBegin, checkEnd}})
                     end
                 end
                 
-                
-                if #triNodes == 1 then
+                if #triNodes == 2 then
+                    local terminalNodes = func.map2(triNodes, func.rev(triNodes), function(node, oNode)
+                        return pipe.new
+                            * nodeCount[node]
+                            * pipe.map(function(s) return trackBack(added, pipe.new, table.unpack(s)) end)
+                            * pipe.filter(function(seg) return seg.lastNode == oNode end)
+                    end)
+                    
+                    if (#terminalNodes[1] == 1 and #terminalNodes[2] == 1) then
+                        preProcForSend(terminalNodes[1][1].result, true, true)
+                    end
+                elseif #triNodes == 1 then
                     local node = triNodes[1]
-                    local terminalNodes = func.map(
-                        nodeCount[node],
-                        function(s) return trackBack(added, pipe.new, table.unpack(s)) end
-                    )
+                    local terminalNodes = func.map(nodeCount[node], function(s) return trackBack(added, pipe.new, table.unpack(s)) end)
                     local lastNodeNew = func.filter(terminalNodes, pipe.select("isLastNodeNew"))
                     
                     if #lastNodeNew == 1 then
-                        preProcForSend(lastNodeNew[1].result)
+                        preProcForSend(lastNodeNew[1].result, true, false)
                     elseif #lastNodeNew == 0 then
                         local terminalNodes = func.map(terminalNodes,
                             function(n)
@@ -664,8 +645,7 @@ local script = {
                                 return {
                                     result = n.result,
                                     lastNode = n.lastNode,
-                                    oldLastNode = r.lastNode or false,
-                                    oldResult = r.result
+                                    oldLastNode = r and r.lastNode or false
                                 }
                             end)
                         local function checkConnection(a, b, c)
@@ -676,11 +656,12 @@ local script = {
                         end
                         
                         local b =
-                            checkConnection(1, 2, 3) and 3 or checkConnection(1, 3, 2) and 2 or
-                            checkConnection(2, 3, 1) and 1 or
-                            false
+                            checkConnection(1, 2, 3) and 3
+                            or checkConnection(1, 3, 2) and 2
+                            or checkConnection(2, 3, 1) and 1
+                            or false
                         if b then
-                            preProcForSend(terminalNodes[b].result)
+                            preProcForSend(terminalNodes[b].result, true, false)
                         end
                     end
                 end
