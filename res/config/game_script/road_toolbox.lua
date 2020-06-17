@@ -1,13 +1,9 @@
--- local dump = require "luadump"
+local dump = require "luadump"
 local coor = require "rtb/coor"
 local func = require "rtb/func"
 local pipe = require "rtb/pipe"
 
-local sutil = require "streetutil"
-local vec3 = require "vec3"
-
 -- local dbg = require("LuaPanda")
-
 local state = {
     use = false,
     windows = {
@@ -20,30 +16,13 @@ local state = {
     oneWay = true
 }
 
-local roadWidth = {
-    country_large_one_way_new = 12 + 4 + 4,
-    country_medium_one_way_new = 8 + 4 + 4,
-    country_small_one_way_new = 3 + 3 + 3,
-    town_large_one_way_new = 12 + 4 + 4,
-    town_medium_one_way_new = 8 + 4 + 4,
-    town_small_one_way_new = 3 + 3 + 3,
-    country_x_large_new = 24 + 4 + 4,
-    country_large_new = 16 + 4 + 4,
-    country_medium_new = 8 + 4 + 4,
-    country_small_new = 6 + 3 + 3,
-    town_x_large_new = 24 + 4 + 4,
-    town_large_new = 16 + 4 + 4,
-    town_medium_new = 8 + 4 + 4,
-    town_small_new = 6 + 3 + 3
-}
-
 local roadTarget = {
-    country_x_large_new = "country_large_one_way_new",
-    country_large_new = "country_medium_one_way_new",
-    country_medium_new = "country_small_one_way_new",
-    town_x_large_new = "town_large_one_way_new",
-    town_large_new = "town_medium_one_way_new",
-    town_medium_new = "town_small_one_way_new"
+    ["standard/country_x_large_new.lua"] = "standard/country_large_one_way_new.lua",
+    ["standard/country_large_new.lua"] = "standard/country_medium_one_way_new.lua",
+    ["standard/country_medium_new.lua"] = "standard/country_small_one_way_new.lua",
+    ["standard/town_x_large_new.lua"] = "standard/town_large_one_way_new.lua",
+    ["standard/town_large_new.lua"] = "standard/town_medium_one_way_new.lua",
+    ["standard/town_medium_new.lua"] = "standard/town_small_one_way_new.lua"
 }
 
 local showWindow = function()
@@ -123,33 +102,60 @@ local createComponents = function()
     end
 end
 
-local function connected(pos, node, ...)
-    local result = {}
-    local allEdges = game.interface.getEntities({pos = pos, radius = 100}, {type = "BASE_EDGE", includeData = true})
-    for eid, e in pairs(allEdges) do
-        if not func.contains({...}, eid) then
-            if e.node0 == node then
-                table.insert(result, func.with(e, {isBegin = true}))
-            elseif e.node1 == node then
-                table.insert(result, func.with(e, {isBegin = false}))
-            end
-        end
+local function calcVec(p0, p1, t0, t1)
+    local function calcScale(dist, angle)
+        if (angle < .001) then return dist end
+
+        local pi2 = math.pi
+        local sqrt2 = 1.41421
+
+        local scale = 1.0
+        if (angle >= pi2) then scale = 1.0 + (sqrt2 - 1.0) * ((angle - pi2) / pi2) end
+
+        return .5 * dist / math.cos(.5 * math.pi - .5 * angle) * angle * scale
     end
-    return result
+
+	local q0 = t0:normalized()
+	local q1 = t1:normalized()
+
+    local v = p1 - p0
+    local length = v:length()
+    local angle = math.acos((function(x) return x > 1 and 1 or x < -1 and -1 or x end)(q0:dot(q1)))
+
+	local scale = calcScale(length, angle)
+
+    return q0 * scale, q1 * scale, p0, p1
 end
 
-local function traceBack(newId)
-    local function work(result, edge, length)
-        local len = coor.new(edge.node0tangent):length()
+local function searchSharpEdge(map, newId, proposal)
+    
+    local function connected(node, ...)
+        local result = {}
+        for _, eid in ipairs(map[node]) do
+            if not func.contains({...}, eid) then
+                local e = {
+                    entity = eid,
+                    comp = api.engine.getComponent(eid, api.type.ComponentType.BASE_EDGE),
+                    streetEdge = api.engine.getComponent(eid, api.type.ComponentType.BASE_EDGE_STREET)
+                }
+                if e.comp.node0 == node then
+                    table.insert(result, func.with(e, {isBegin = true}))
+                elseif e.comp.node1 == node then
+                    table.insert(result, func.with(e, {isBegin = false}))
+                end
+            end
+        end
+        return result
+    end
+
+    local function traceBack(result, edge, length)
+        local len = coor.xyz(edge.comp.tangent0[1], edge.comp.tangent0[2], edge.comp.tangent0[3]):length()
         if (len < length) then
-            local dest = edge.isBegin and edge.node1 or edge.node0
-            local next = connected(edge.isBegin and edge.node1pos or edge.node0pos, dest, edge.id, table.unpack(newId))
+            local dest = edge.isBegin and edge.comp.node1 or edge.comp.node0
+            local next = connected(dest, edge.entity, table.unpack(newId))
             if (#next == 1) then
-                -- elseif (#next == 0) then
-                --     table.insert(result, edge)
-                --     return result, length - len
                 table.insert(result, edge)
-                return work(result, next[1], length - len)
+                return traceBack(result, next[1], length - len)
             else
                 return nil
             end
@@ -158,74 +164,73 @@ local function traceBack(newId)
             return result, length - len
         end
     end
-    return work
-end
 
-local exportEdge = function(pos0, pos1, vec0, vec1)
-    local edges = {}
-    sutil.addEdgeAutoTangents(
-        edges,
-        vec3.new(pos0.x, pos0.y, pos0.z),
-        vec3.new(pos1.x, pos1.y, pos1.z),
-        vec3.new(vec0.x, vec0.y, vec0.z),
-        vec3.new(vec1.x, vec1.y, vec1.z)
-    )
-    return edges
-end
-
-local function searchSharpEdge(newId, replace, remove)
-    local traceBack = traceBack(newId)
     return function(id, vec, length)
-        local node = game.interface.getEntity(id)
-        local edges = connected(node.position, id, table.unpack(newId))
+        local edges = connected(id, table.unpack(newId))
         local isBackwardTooShort = false
         if #edges > 0 then
             for _, e in ipairs(edges) do
-                local vece = e.isBegin and coor.new(e.node0tangent) or -coor.new(e.node1tangent)
+                local vece = e.isBegin
+                    and coor.new(e.comp.tangent0)
+                    or -coor.new(e.comp.tangent1)
                 local cx = vece:dot(vec)
                 if cx > 0 then
                     local result, len = traceBack({}, e, length)
                     if result then
                         if len < 0 then
                             local fst, lst = result[1], result[#result]
-                            local pos0 = coor.new(fst.isBegin and fst.node0pos or fst.node1pos)
-                            local pos1 = coor.new(lst.isBegin and lst.node1pos or lst.node0pos)
-                            local vec0 = fst.isBegin and coor.new(fst.node0tangent) or -coor.new(fst.node1tangent)
-                            local vec1 = lst.isBegin and coor.new(lst.node1tangent) or -coor.new(lst.node0tangent)
                             
                             for _, e in ipairs(result) do
-                                table.insert(remove, e.id)
+                                proposal.streetProposal.edgesToRemove[#proposal.streetProposal.edgesToRemove + 1] = e.entity
                             end
                             
-                            table.insert(
-                                replace.backward,
-                                {
-                                    edge = exportEdge(pos0, pos1, vec0, vec1),
-                                    street = fst.streetType,
-                                    hasTram = fst.hasTram,
-                                    snap0 = false,
-                                    snap1 = true
-                                }
-                        )
+                            local entity = api.type.SegmentAndEntity.new()
+                            
+                            entity.entity = -fst.entity
+                            entity.playerOwned = {player = api.engine.util.getPlayer()}
+                            
+                            local comp0 = fst.comp
+                            local comp1 = lst.comp
+                            local streetEdge = fst.streetEdge
+                            
+                            entity.comp.node0 = fst.isBegin and comp0.node0 or comp0.node1
+                            entity.comp.node1 = lst.isBegin and comp1.node1 or comp1.node0
+                            
+                            for i = 1, 3 do
+                                entity.comp.tangent0[i] = fst.isBegin and comp0.tangent0[i] or comp1.tangent1[i]
+                                entity.comp.tangent1[i] = lst.isBegin and comp0.tangent1[i] or comp1.tangent0[i]
+                            end
+
+                            local pos0 = coor.new(game.interface.getEntity(entity.comp.node0).position)
+                            local pos1 = coor.new(game.interface.getEntity(entity.comp.node1).position)
+                            local vec0 = coor.new(entity.comp.tangent0)
+                            local vec1 = coor.new(entity.comp.tangent1)
+
+                            local vec0, vec1 = calcVec(pos0, pos1, vec0, vec1)
+
+                            for i = 1, 3 do
+                                entity.comp.tangent0[i] = vec0[i]
+                                entity.comp.tangent1[i] = vec1[i]
+                            end
+
+                            
+                            entity.comp.type = comp0.type
+                            entity.comp.typeIndex = comp0.typeIndex
+                            
+                            entity.type = 0
+                            entity.streetEdge.streetType = streetEdge.streetType
+                            entity.streetEdge.hasBus = streetEdge.hasBus
+                            entity.streetEdge.tramTrackType = streetEdge.tramTrackType
+                            entity.streetEdge.precedenceNode0 = streetEdge.precedenceNode0
+                            entity.streetEdge.precedenceNode1 = streetEdge.precedenceNode1
+                            
+                            proposal.streetProposal.edgesToAdd[#proposal.streetProposal.edgesToAdd + 1] = entity
                         else
                             isBackwardTooShort = true
                         end
                     else
                         isBackwardTooShort = true
                     end
-                else
-                    replace.forward[e.id] = {
-                        edge = exportEdge(
-                            coor.new(e.node0pos),
-                            coor.new(e.node1pos),
-                            coor.new(e.node0tangent),
-                            coor.new(e.node1tangent)
-                        ),
-                        street = e.streetType,
-                        hasTram = e.hasTram,
-                        snap0 = not e.isBegin,
-                        snap1 = e.isBegin
-                    }
                 end
             end
         end
@@ -233,100 +238,72 @@ local function searchSharpEdge(newId, replace, remove)
     end
 end
 
-local buildSharp = function(newSegments, checkBegin, checkEnd)
-    local newId = func.map(newSegments, pipe.select("id"))
-    local replace = {forward = {}, backward = {}}
-    local remove = {}
+local buildSharp = function(newSegments, nodes)
+    local map = api.engine.system.streetSystem.getNode2StreetEdgeMap()
     
-    local searchSharpEdge = searchSharpEdge(newId, replace, remove)
+    local newProposal = api.type.SimpleProposal.new()
     
-    local segInfo = {false}
-    for _, seg in ipairs(newSegments) do
-        if not segInfo[#segInfo] then
-            local e = game.interface.getEntity(seg.id)
-            segInfo[#segInfo] = {
-                edge = seg.edge,
-                snap0 = seg.snap0,
-                snap1 = seg.snap1,
-                length = coor.new(seg.edge.vec0):length(),
-                hasTram = e.hasTram,
-                street = e.streetType
-            }
-        else
-            segInfo[#segInfo].edge.pos1 = seg.edge.pos1
-            segInfo[#segInfo].edge.vec1 = seg.edge.vec1
-            segInfo[#segInfo].edge.node1 = seg.edge.node1
-            segInfo[#segInfo].length = segInfo[#segInfo].length + coor.new(seg.edge.vec0):length()
-            segInfo[#segInfo].snap1 = seg.snap1
-        end
-        if seg.snap1 then
-            table.insert(segInfo, false)
-        else
-            local conn = connected(seg.edge.pos1, seg.edge.node1, table.unpack(newId))
-            if #conn > 0 then
-                table.insert(segInfo, false)
-            end
-        end
+    local pos0 = coor.new(game.interface.getEntity(nodes[1].node).position)
+    local pos1 = coor.new(game.interface.getEntity(nodes[2].node).position)
+    
+    local vec = pos1 - pos0
+    local length = vec:length()
+    
+    local entity = api.type.SegmentAndEntity.new()
+    
+    local streetEdge = api.engine.getComponent(newSegments[1], api.type.ComponentType.BASE_EDGE_STREET)
+    local comp = api.engine.getComponent(newSegments[1], api.type.ComponentType.BASE_EDGE)
+    
+    entity.entity = -newSegments[1]
+    entity.playerOwned = {player = api.engine.util.getPlayer()}
+    
+    entity.comp.node0 = nodes[1].node
+    entity.comp.node1 = nodes[2].node
+    
+    for i = 1, 3 do
+        entity.comp.tangent0[i] = vec[i]
+        entity.comp.tangent1[i] = vec[i]
+    end
+
+    entity.comp.type = comp.type
+    entity.comp.typeIndex = comp.typeIndex
+    
+    entity.type = 0
+    entity.streetEdge.streetType = streetEdge.streetType
+    entity.streetEdge.hasBus = streetEdge.hasBus
+    entity.streetEdge.tramTrackType = streetEdge.tramTrackType
+    entity.streetEdge.precedenceNode0 = streetEdge.precedenceNode0
+    entity.streetEdge.precedenceNode1 = streetEdge.precedenceNode1
+    
+    newProposal.streetProposal.edgesToAdd[1] = entity
+    for i, seg in ipairs(newSegments) do
+        newProposal.streetProposal.edgesToRemove[i] = seg
     end
     
-    segInfo =
-        pipe.new
-        * segInfo
-        * pipe.filter(function(seg) return seg end)
-        * pipe.map(function(seg)
-            local pos0, pos1 = coor.new(seg.edge.pos0), coor.new(seg.edge.pos1)
-            local vec = pos1 - pos0
-            return func.with(seg,
-                {
-                    edge = func.with(seg.edge,
-                        {
-                            vec0 = vec:toTuple(),
-                            vec1 = vec:toTuple()
-                        }
-                    ),
-                    length = vec:length()
-                })
-        end)
-    if #segInfo == 1 then
-        local seg = segInfo[1]
-        
-        local checkFn = {
-            function() return searchSharpEdge(seg.edge.node0, coor.new(seg.edge.vec0), seg.length) end,
-            function() return searchSharpEdge(seg.edge.node1, -coor.new(seg.edge.vec1), seg.length) end
-        }
-        
-        local check = false
-        if checkBegin and checkEnd then check = checkFn[1]() and checkFn[2]()
-        elseif checkBegin then check = checkFn[1]()
-        elseif checkEnd then check = checkFn[2]()
+    local searchSharpEdge = searchSharpEdge(map, newSegments, newProposal)
+    local check = searchSharpEdge(nodes[1].node, vec, length) and searchSharpEdge(nodes[2].node, -vec, length)
+    if check then
+        local removeNodes = {}
+        for _, edge in ipairs(newProposal.streetProposal.edgesToRemove) do
+            local e = api.engine.getComponent(edge, api.type.ComponentType.BASE_EDGE)
+            removeNodes[e.node0] = removeNodes[e.node0] and removeNodes[e.node0] + 1 or 1
+            removeNodes[e.node1] = removeNodes[e.node1] and removeNodes[e.node1] + 1 or 1
         end
-        
-        if check then
-            for id, _ in pairs(replace.forward) do
-                if func.contains(remove, id) then
-                    replace.forward[id] = false
-                else
-                    table.insert(remove, id)
-                end
+        for _, e in ipairs(newProposal.streetProposal.edgesToAdd) do
+            if removeNodes[e.comp.node0] then removeNodes[e.comp.node0] = removeNodes[e.comp.node0] - 1 end
+            if removeNodes[e.comp.node1] then removeNodes[e.comp.node1] = removeNodes[e.comp.node1] - 1 end
+        end
+        for node, n in pairs(removeNodes) do
+            if #map[node] - n == 0 then
+                newProposal.streetProposal.nodesToRemove[#newProposal.streetProposal.nodesToRemove + 1] = node
             end
-            
-            for _, e in ipairs(remove) do game.interface.bulldoze(e) end
-            
-            for _, e in ipairs(newId) do game.interface.bulldoze(e) end
-            
-            local new = func.map(segInfo,
-                function(seg)
-                    local vec = (coor.new(seg.edge.pos1) - coor.new(seg.edge.pos0))
-                    return func.with(seg, {edge = exportEdge(coor.new(seg.edge.pos0), coor.new(seg.edge.pos1), vec, vec)})
-                end
-            )
-            local replace = func.concat(replace.backward, func.filter(func.values(replace.forward), pipe.noop()))
-            
-            local id = game.interface.buildConstruction("sharp_street.con", {new = new, replace = replace}, coor.I())
-            game.interface.setPlayer(id, game.interface.getPlayer())
-            game.interface.upgradeConstruction(id, "sharp_street.con", {new = new, replace = replace, isFinal = true})
-            game.interface.bulldoze(id)
         end
+        
+        local build = api.cmd.make.buildProposal(newProposal, nil)
+        build.ignoreErrors = true
+        
+        api.cmd.sendCommand(build, function(_)dump()(_) end)
+    
     end
 end
 
@@ -334,51 +311,60 @@ local buildParallel = function(newSegments)
     local new = {}
     
     for n, seg in ipairs(newSegments) do
-        local e = game.interface.getEntity(seg.id)
+        local e = game.interface.getEntity(seg)
         
-        local sType = string.match(e.streetType or "", "standard/(.+).lua")
-        local streetType = state.oneWay and roadTarget[sType] or sType
-        local streetWidth = roadWidth[streetType]
+        local comp = api.engine.getComponent(seg, api.type.ComponentType.BASE_EDGE)
+        local streetEdge = api.engine.getComponent(seg, api.type.ComponentType.BASE_EDGE_STREET)
+        local refType = api.res.streetTypeRep.getFileName(streetEdge.streetType):match("res/config/street/(.+.lua)")
+        local ref = api.res.streetTypeRep.get(streetEdge.streetType)
+        local streetType = state.oneWay and roadTarget[refType] or refType
+        local street = api.res.streetTypeRep.get(api.res.streetTypeRep.find(streetType))
+        local streetWidth = street.streetWidth + street.sidewalkWidth * 2
+        local refWidth = ref.streetWidth + ref.sidewalkWidth * 2
+        
         if streetType and streetWidth then
             local spacing = (streetWidth + (state.distance >= 0 and (state.distance + 0.05) or state.distance)) * 0.5
             if spacing <= 0 then
                 spacing = 0.25
             end
-            local pos0 = coor.new(seg.edge.pos0)
-            local pos1 = coor.new(seg.edge.pos1)
-            local vec0 = coor.new(seg.edge.vec0)
-            local vec1 = coor.new(seg.edge.vec1)
+            local pos0 = coor.new(game.interface.getEntity(comp.node0).position)
+            local pos1 = coor.new(game.interface.getEntity(comp.node1).position)
+            local vec0 = coor.new(comp.tangent0)
+            local vec1 = coor.new(comp.tangent1)
             
             for i, rot in ipairs({coor.xyz(0, 0, 1), coor.xyz(0, 0, -1)}) do
                 local disp0 = vec0:cross(rot):normalized() * spacing
                 local disp1 = vec1:cross(rot):normalized() * spacing
-                local edge = i == 1
-                    and exportEdge(pos0 + disp0, pos1 + disp1, vec0, vec1)
-                    or exportEdge(pos1 + disp1, pos0 + disp0, -vec1, -vec0)
+                local vec0, vec1, pos0, pos1 = table.unpack(i == 1
+                    and {calcVec(pos0 + disp0, pos1 + disp1, vec0, vec1)}
+                    or {calcVec(pos1 + disp1, pos0 + disp0, -vec1, -vec0)}
+                )
+
+                local edge = func.map({{pos0, vec0}, {pos1, vec1}}, pipe.map(coor.vec2Tuple))
                 
                 table.insert(new,
                     {
                         edge = edge,
                         hasTram = e.hasTram,
-                        street = "standard/" .. streetType .. ".lua",
+                        street = streetType,
                         snap0 = (i == 1 and n == 1) or (i == 2 and n == #newSegments),
                         snap1 = (i == 1 and n == #newSegments) or (i == 2 and n == 1)
                     }
             )
             end
             
-            if (state.distance >= roadWidth[sType]) then
+            if (state.distance >= refWidth) then
                 table.insert(new,
                     {
-                        edge = exportEdge(pos0, pos1, vec0, vec1),
+                        edge = func.map({{pos0, vec0}, {pos1, vec1}}, pipe.map(coor.vec2Tuple)),
                         hasTram = e.hasTram,
-                        street = "standard/" .. sType .. ".lua",
+                        street = refType,
                         snap0 = n == 1,
                         snap1 = n == #newSegments
                     }
             )
             end
-            game.interface.bulldoze(seg.id)
+            game.interface.bulldoze(seg)
         end
     end
     
@@ -386,29 +372,6 @@ local buildParallel = function(newSegments)
     game.interface.setPlayer(id, game.interface.getPlayer())
     game.interface.upgradeConstruction(id, "parallel_street.con", {new = new, isFinal = true})
     game.interface.bulldoze(id)
-end
-
-local function exportSeg(nodes, seg)
-    local node0 = nodes[seg.comp.node0]
-    local node1 = nodes[seg.comp.node1]
-    local snap0 = not node0
-    local snap1 = not node1
-    
-    local edge = {
-        pos0 = node0 or (game.interface.getEntity(seg.comp.node0).position),
-        pos1 = node1 or (game.interface.getEntity(seg.comp.node1).position),
-        vec0 = {seg.comp.tangent0[1], seg.comp.tangent0[2], seg.comp.tangent0[3]},
-        vec1 = {seg.comp.tangent1[1], seg.comp.tangent1[2], seg.comp.tangent1[3]},
-        node0 = seg.comp.node0,
-        node1 = seg.comp.node1
-    }
-    
-    return {
-        id = seg.entity,
-        edge = edge,
-        snap0 = snap0,
-        snap1 = snap1,
-    }
 end
 
 local script = {
@@ -432,7 +395,7 @@ local script = {
             elseif (name == "distance") then
                 state.distance = state.distance + param.step
             elseif (name == "sharp") then
-                buildSharp(param.newSegments, table.unpack(param.check))
+                buildSharp(param.newSegments, param.nodes)
             elseif (name == "parallel") then
                 buildParallel(param.newSegments)
             end
@@ -484,19 +447,10 @@ local script = {
                 and #proposal.removedSegments == 0
             then
                 local newSegments = {}
-                local nodes = {}
-                
-                for i = 1, #proposal.addedNodes do
-                    local node = proposal.addedNodes[i]
-                    local id = node.entity
-                    nodes[id] = {node.comp.position[1], node.comp.position[2], node.comp.position[3]}
-                end
-                
                 for i = 1, #proposal.addedSegments do
                     local seg = proposal.addedSegments[i]
                     if seg.type == 0 then
-                        local seg = exportSeg(nodes, seg)
-                        table.insert(newSegments, seg)
+                        table.insert(newSegments, seg.entity)
                     end
                 end
                 
@@ -504,166 +458,33 @@ local script = {
                     game.interface.sendScriptEvent("__roadtoolbox_", "parallel", {newSegments = newSegments})
                 end
             elseif
-                state.use == 1 and proposal.addedSegments and proposal.addedNodes and #proposal.addedSegments > 0 and
-                #proposal.addedNodes > 0
+                state.use == 1 and
+                proposal.addedSegments and #proposal.addedSegments > 0
             then
+                local newSegments = {}
                 local nodes = {}
-                local nodeCount = {}
-                
-                local removed = {}
-                local added = {}
-                
-                for i = 1, #proposal.removedSegments do
-                    local seg = proposal.removedSegments[i]
-                    removed[seg.entity] = seg
-                end
-                
-                for i = 1, #proposal.addedNodes do
-                    local node = proposal.addedNodes[i]
-                    local id = node.entity
-                    nodes[id] = {node.comp.position[1], node.comp.position[2], node.comp.position[3]}
-                    nodeCount[id] = {}
-                end
-                
+                local map = api.engine.system.streetSystem.getNode2StreetEdgeMap()
                 for i = 1, #proposal.addedSegments do
                     local seg = proposal.addedSegments[i]
-                    added[seg.entity] = seg
-                    if seg.type == 0 then
-                        if nodes[seg.comp.node0] then
-                            table.insert(nodeCount[seg.comp.node0], {seg.entity, true})
-                        end
-                        if nodes[seg.comp.node1] then
-                            table.insert(nodeCount[seg.comp.node1], {seg.entity, false})
-                        end
+                    if not proposal.new2oldSegments[seg.entity] then
+                        table.insert(newSegments, seg.entity)
+                        if not nodes[seg.comp.node0] then nodes[seg.comp.node0] = {} end
+                        if not nodes[seg.comp.node1] then nodes[seg.comp.node1] = {} end
+                        table.insert(nodes[seg.comp.node0], seg.entity)
+                        table.insert(nodes[seg.comp.node1], seg.entity)
                     end
                 end
                 
-                local triNodes = {}
-                for id, nc in pairs(nodeCount) do
-                    if #nc == 3 then
-                        table.insert(triNodes, id)
+                local extNodes = {}
+                
+                for node, edges in pairs(nodes) do
+                    if #edges == 1 then
+                        table.insert(extNodes, {node = node, isConnected = #edges < #map[node]})
                     end
                 end
                 
-                local function trackBack(ref, result, segId, isBegin)
-                    local nextNode = isBegin and ref[segId].comp.node1 or ref[segId].comp.node0
-                    local candidates = {}
-                    for id, seg in pairs(ref) do
-                        if id ~= segId then
-                            if seg.comp.node0 == nextNode then
-                                table.insert(candidates, {id, true})
-                            elseif seg.comp.node1 == nextNode then
-                                table.insert(candidates, {id, false})
-                            end
-                        end
-                    end
-                    if #candidates == 1 then
-                        return trackBack(ref, result / {id = segId, isBegin = isBegin}, table.unpack(candidates[1]))
-                    else
-                        return {
-                            lastNode = nextNode,
-                            isLastNodeNew = nodes[nextNode] ~= nil,
-                            result = result / {id = segId, isBegin = isBegin}
-                        }
-                    end
-                end
-                
-                
-                local preProcForSend = function(newSeg, checkBegin, checkEnd)
-                    local newSegments = func.map(newSeg,
-                        function(r)
-                            local seg = exportSeg(nodes, added[r.id])
-                            seg.isBegin = r.isBegin
-                            return seg
-                        end)
-                    if #newSegments > 0 then
-                        if newSegments[1].isBegin then
-                            newSegments =
-                                func.map(newSegments, function(seg)
-                                    local edge = seg.edge
-                                    if not seg.isBegin then
-                                        edge.pos0, edge.pos1 = edge.pos1, edge.pos0
-                                        edge.node0, edge.node1 = edge.node1, edge.node0
-                                        edge.vec0, edge.vec1 = (-coor.new(edge.vec1)):toTuple(), (-coor.new(edge.vec0)):toTuple()
-                                        seg.snap0, seg.snap1 = seg.snap1, seg.snap0
-                                    end
-                                    return func.with(seg, {edge = edge})
-                                end)
-                        else
-                            newSegments = func.map(newSegments,
-                                function(seg)
-                                    local edge = seg.edge
-                                    if seg.isBegin then
-                                        edge.pos0, edge.pos1 = edge.pos1, edge.pos0
-                                        edge.node0, edge.node1 = edge.node1, edge.node0
-                                        edge.vec0, edge.vec1 = (-coor.new(edge.vec1)):toTuple(), (-coor.new(edge.vec0)):toTuple()
-                                        seg.snap0, seg.snap1 = seg.snap1, seg.snap0
-                                    end
-                                    return func.with(seg, {edge = edge})
-                                end)
-                            newSegments = func.rev(newSegments)
-                            checkBegin, checkEnd = checkEnd, checkBegin
-                        end
-                        game.interface.sendScriptEvent("__roadtoolbox_", "sharp", {newSegments = newSegments, check = {checkBegin, checkEnd}})
-                    end
-                end
-                
-                if #triNodes == 2 then
-                    local terminalNodes = func.map2(triNodes, func.rev(triNodes), function(node, oNode)
-                        return pipe.new
-                            * nodeCount[node]
-                            * pipe.map(function(s) return trackBack(added, pipe.new, table.unpack(s)) end)
-                            * pipe.filter(function(seg) return seg.lastNode == oNode end)
-                    end)
-                    
-                    if (#terminalNodes[1] == 1 and #terminalNodes[2] == 1) then
-                        preProcForSend(terminalNodes[1][1].result, true, true)
-                    end
-                elseif #triNodes == 1 then
-                    local node = triNodes[1]
-                    local terminalNodes = func.map(nodeCount[node], function(s) return trackBack(added, pipe.new, table.unpack(s)) end)
-                    local lastNodeNew = func.filter(terminalNodes, pipe.select("isLastNodeNew"))
-                    
-                    if #lastNodeNew == 1 then
-                        preProcForSend(lastNodeNew[1].result, true, false)
-                    elseif #lastNodeNew == 0 then
-                        local terminalNodes = func.map(terminalNodes,
-                            function(n)
-                                local nodeId = n.lastNode
-                                local lastSeg = n.result[#n.result].id
-                                local r = false
-                                for _, id in pairs(proposal.new2oldSegments[lastSeg] or {}) do
-                                    local seg = removed[id]
-                                    if seg.comp.node0 == nodeId then
-                                        r = trackBack(removed, pipe.new, id, true)
-                                        break
-                                    elseif seg.comp.node1 == nodeId then
-                                        r = trackBack(removed, pipe.new, id, false)
-                                        break
-                                    end
-                                end
-                                return {
-                                    result = n.result,
-                                    lastNode = n.lastNode,
-                                    oldLastNode = r and r.lastNode or false
-                                }
-                            end)
-                        local function checkConnection(a, b, c)
-                            return terminalNodes[a].lastNode == terminalNodes[b].oldLastNode and
-                                terminalNodes[b].lastNode == terminalNodes[a].oldLastNode and
-                                terminalNodes[c].oldLastNode ~= terminalNodes[a].lastNode and
-                                terminalNodes[c].oldLastNode ~= terminalNodes[b].lastNode
-                        end
-                        
-                        local b =
-                            checkConnection(1, 2, 3) and 3
-                            or checkConnection(1, 3, 2) and 2
-                            or checkConnection(2, 3, 1) and 1
-                            or false
-                        if b then
-                            preProcForSend(terminalNodes[b].result, true, false)
-                        end
-                    end
+                if (#extNodes == 2 and #func.filter(extNodes, pipe.select("isConnected")) > 0) then
+                    game.interface.sendScriptEvent("__roadtoolbox_", "sharp", {newSegments = newSegments, nodes = extNodes})
                 end
             end
         end
