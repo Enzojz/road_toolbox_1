@@ -1,4 +1,4 @@
-local dump = require "luadump"
+-- local dump = require "luadump"
 local coor = require "rtb/coor"
 local func = require "rtb/func"
 local pipe = require "rtb/pipe"
@@ -103,27 +103,19 @@ local createComponents = function()
 end
 
 local function calcVec(p0, p1, t0, t1)
-    local function calcScale(dist, angle)
-        if (angle < .001) then return dist end
-
-        local pi2 = math.pi
-        local sqrt2 = 1.41421
-
-        local scale = 1.0
-        if (angle >= pi2) then scale = 1.0 + (sqrt2 - 1.0) * ((angle - pi2) / pi2) end
-
-        return .5 * dist / math.cos(.5 * math.pi - .5 * angle) * angle * scale
-    end
-
-	local q0 = t0:normalized()
-	local q1 = t1:normalized()
-
+    local q0 = t0:normalized()
+    local q1 = t1:normalized()
+    
     local v = p1 - p0
     local length = v:length()
-    local angle = math.acos((function(x) return x > 1 and 1 or x < -1 and -1 or x end)(q0:dot(q1)))
-
-	local scale = calcScale(length, angle)
-
+    
+    local cos = q0:dot(q1)
+    local rad = math.acos(cos)
+    if (rad < 0.05) then return q0 * length, q1 * length, p0, p1 end
+    -- local hsin = math.sqrt((1 - cos) * 0.5)
+    -- local r = 0.5 * length / hsin
+    local r = length / math.sqrt(2 - 2 * cos)
+    local scale = rad * r
     return q0 * scale, q1 * scale, p0, p1
 end
 
@@ -147,7 +139,7 @@ local function searchSharpEdge(map, newId, proposal)
         end
         return result
     end
-
+    
     local function traceBack(result, edge, length)
         local len = coor.xyz(edge.comp.tangent0[1], edge.comp.tangent0[2], edge.comp.tangent0[3]):length()
         if (len < length) then
@@ -164,7 +156,7 @@ local function searchSharpEdge(map, newId, proposal)
             return result, length - len
         end
     end
-
+    
     return function(id, vec, length)
         local edges = connected(id, table.unpack(newId))
         local isBackwardTooShort = false
@@ -197,22 +189,21 @@ local function searchSharpEdge(map, newId, proposal)
                             entity.comp.node1 = lst.isBegin and comp1.node1 or comp1.node0
                             
                             for i = 1, 3 do
-                                entity.comp.tangent0[i] = fst.isBegin and comp0.tangent0[i] or comp1.tangent1[i]
-                                entity.comp.tangent1[i] = lst.isBegin and comp0.tangent1[i] or comp1.tangent0[i]
+                                entity.comp.tangent0[i] = fst.isBegin and comp0.tangent0[i] or comp0.tangent1[i]
+                                entity.comp.tangent1[i] = lst.isBegin and comp1.tangent1[i] or comp1.tangent0[i]
                             end
-
+                            
                             local pos0 = coor.new(game.interface.getEntity(entity.comp.node0).position)
                             local pos1 = coor.new(game.interface.getEntity(entity.comp.node1).position)
                             local vec0 = coor.new(entity.comp.tangent0)
                             local vec1 = coor.new(entity.comp.tangent1)
-
+                            
                             local vec0, vec1 = calcVec(pos0, pos1, vec0, vec1)
-
+                            
                             for i = 1, 3 do
                                 entity.comp.tangent0[i] = vec0[i]
                                 entity.comp.tangent1[i] = vec1[i]
                             end
-
                             
                             entity.comp.type = comp0.type
                             entity.comp.typeIndex = comp0.typeIndex
@@ -264,7 +255,7 @@ local buildSharp = function(newSegments, nodes)
         entity.comp.tangent0[i] = vec[i]
         entity.comp.tangent1[i] = vec[i]
     end
-
+    
     entity.comp.type = comp.type
     entity.comp.typeIndex = comp.typeIndex
     
@@ -302,35 +293,41 @@ local buildSharp = function(newSegments, nodes)
         local build = api.cmd.make.buildProposal(newProposal, nil)
         build.ignoreErrors = true
         
-        api.cmd.sendCommand(build, function(_)dump()(_) end)
+        api.cmd.sendCommand(build, function(_) end)
     
     end
 end
 
 local buildParallel = function(newSegments)
-    local new = {}
-    
+    local newIdCount = 0
+    local newNodes = {}
+    local function newId() newIdCount = newIdCount + 1 return -newIdCount end
+    local proposal = api.type.SimpleProposal.new()
     for n, seg in ipairs(newSegments) do
-        local e = game.interface.getEntity(seg)
-        
+        local map = api.engine.system.streetSystem.getNode2StreetEdgeMap()
         local comp = api.engine.getComponent(seg, api.type.ComponentType.BASE_EDGE)
         local streetEdge = api.engine.getComponent(seg, api.type.ComponentType.BASE_EDGE_STREET)
         local refType = api.res.streetTypeRep.getFileName(streetEdge.streetType):match("res/config/street/(.+.lua)")
         local ref = api.res.streetTypeRep.get(streetEdge.streetType)
+        
         local streetType = state.oneWay and roadTarget[refType] or refType
-        local street = api.res.streetTypeRep.get(api.res.streetTypeRep.find(streetType))
+        local streetTypeIndex = api.res.streetTypeRep.find(streetType)
+        local street = api.res.streetTypeRep.get(streetTypeIndex)
         local streetWidth = street.streetWidth + street.sidewalkWidth * 2
         local refWidth = ref.streetWidth + ref.sidewalkWidth * 2
+
+        newNodes[n] = {}
         
         if streetType and streetWidth then
             local spacing = (streetWidth + (state.distance >= 0 and (state.distance + 0.05) or state.distance)) * 0.5
             if spacing <= 0 then
                 spacing = 0.25
             end
+
             local pos0 = coor.new(game.interface.getEntity(comp.node0).position)
             local pos1 = coor.new(game.interface.getEntity(comp.node1).position)
-            local vec0 = coor.new(comp.tangent0)
-            local vec1 = coor.new(comp.tangent1)
+            local vec0 = coor.xyz(comp.tangent0[1], comp.tangent0[2], comp.tangent0[3])
+            local vec1 = coor.xyz(comp.tangent1[1], comp.tangent1[2], comp.tangent1[3])
             
             for i, rot in ipairs({coor.xyz(0, 0, 1), coor.xyz(0, 0, -1)}) do
                 local disp0 = vec0:cross(rot):normalized() * spacing
@@ -339,39 +336,77 @@ local buildParallel = function(newSegments)
                     and {calcVec(pos0 + disp0, pos1 + disp1, vec0, vec1)}
                     or {calcVec(pos1 + disp1, pos0 + disp0, -vec1, -vec0)}
                 )
-
-                local edge = func.map({{pos0, vec0}, {pos1, vec1}}, pipe.map(coor.vec2Tuple))
                 
-                table.insert(new,
-                    {
-                        edge = edge,
-                        hasTram = e.hasTram,
-                        street = streetType,
-                        snap0 = (i == 1 and n == 1) or (i == 2 and n == #newSegments),
-                        snap1 = (i == 1 and n == #newSegments) or (i == 2 and n == 1)
-                    }
-            )
+                local entity = api.type.SegmentAndEntity.new()
+                entity.entity = newId()
+                entity.playerOwned = {player = api.engine.util.getPlayer()}
+                for i = 1, 3 do
+                    entity.comp.tangent0[i] = vec0[i]
+                    entity.comp.tangent1[i] = vec1[i]
+                end
+                
+                entity.comp.type = comp.type
+                entity.comp.typeIndex = comp.typeIndex
+                
+                entity.type = 0
+                entity.streetEdge.streetType = streetTypeIndex
+                entity.streetEdge.hasBus = streetEdge.hasBus
+                entity.streetEdge.tramTrackType = streetEdge.tramTrackType
+                entity.streetEdge.precedenceNode0 = streetEdge.precedenceNode0
+                entity.streetEdge.precedenceNode1 = streetEdge.precedenceNode1
+
+                local newNode = function(pos)
+                    local node = api.type.NodeAndEntity.new()
+                    node.entity = newId()
+                    for i = 1, 3 do
+                        node.comp.position[i] = pos[i]
+                    end
+                    proposal.streetProposal.nodesToAdd[#proposal.streetProposal.nodesToAdd + 1] = node
+                    return node.entity
+                end
+
+                local catchNode = function(pos)
+                    return pipe.new
+                    * game.interface.getEntities({pos = pos:toTuple(), radius = 1}, {type = "BASE_NODE"})
+                    * pipe.map(game.interface.getEntity)
+                    * pipe.sort(function(e) return (coor.new(e.position) - pos):length() end)
+                    * (function(r) return #r > 0 and r[1].id or nil end)
+                end
+                
+                if (i == 1 and n == 1) or (i == 2 and n == #newSegments) then
+                    entity.comp.node0 = catchNode(pos0) or newNode(pos0)
+                else
+                    if i == 1 then
+                        entity.comp.node0 = newNodes[n - 1][i]
+                    else
+                        entity.comp.node0 = newNode(pos0)
+                        newNodes[n][i] = entity.comp.node0
+                    end
+                end
+
+                if (i == 1 and n == #newSegments) or (i == 2 and n == 1) then
+                    entity.comp.node1 = catchNode(pos1) or newNode(pos1)
+                else
+                    if i == 1 then
+                        entity.comp.node1 = newNode(pos1)
+                        newNodes[n][i] = entity.comp.node1
+                    else
+                        entity.comp.node1 = newNodes[n - 1][i]
+                    end
+                end
+                proposal.streetProposal.edgesToAdd[#proposal.streetProposal.edgesToAdd + 1] = entity
             end
             
-            if (state.distance >= refWidth) then
-                table.insert(new,
-                    {
-                        edge = func.map({{pos0, vec0}, {pos1, vec1}}, pipe.map(coor.vec2Tuple)),
-                        hasTram = e.hasTram,
-                        street = refType,
-                        snap0 = n == 1,
-                        snap1 = n == #newSegments
-                    }
-            )
+            if (state.distance < refWidth) then
+                if map[comp.node0] == 1 then proposal.streetProposal.nodesToRemove[#proposal.streetProposal.nodesToRemove + 1] = comp.node0 end
+                if map[comp.node1] == 1 then proposal.streetProposal.nodesToRemove[#proposal.streetProposal.nodesToRemove + 1] = comp.node1 end
+                proposal.streetProposal.edgesToRemove[1] = seg
             end
-            game.interface.bulldoze(seg)
         end
     end
+    local build = api.cmd.make.buildProposal(proposal, nil)
+    api.cmd.sendCommand(build, function(_) end)
     
-    local id = game.interface.buildConstruction("parallel_street.con", {new = new}, coor.I())
-    game.interface.setPlayer(id, game.interface.getPlayer())
-    game.interface.upgradeConstruction(id, "parallel_street.con", {new = new, isFinal = true})
-    game.interface.bulldoze(id)
 end
 
 local script = {
