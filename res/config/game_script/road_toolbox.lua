@@ -6,14 +6,10 @@ local pipe = require "rtb/pipe"
 -- local dbg = require("LuaPanda")
 local state = {
     use = false,
-    windows = {
-        window = false,
-        distance = false,
-        oneWay = false
-    },
-    showWindow = false,
+    window = false,
     distance = 0,
-    oneWay = true
+    oneWay = true,
+    fn = {}
 }
 
 local roadTarget = {
@@ -25,62 +21,80 @@ local roadTarget = {
     ["standard/town_medium_new.lua"] = "standard/town_small_one_way_new.lua"
 }
 
-local showWindow = function()
-    local distValue = gui.textView_create("roadtoolbox.distance.value", tostring(state.distance))
-    local distAdd = gui.textView_create("roadtoolbox.distance.add.text", "+")
-    local distSub = gui.textView_create("roadtoolbox.distance.sub.text", "-")
-    local distAddButton = gui.button_create("roadtoolbox.distance.add", distAdd)
-    local distSubButton = gui.button_create("roadtoolbox.distance.sub", distSub)
-    local distLayout = gui.boxLayout_create("roadtoolbox.distance.layout", "HORIZONTAL")
-    distLayout:addItem(distSubButton)
-    distLayout:addItem(distValue)
-    distLayout:addItem(distAddButton)
+local setWidth = function(ctrl, width)
+    local tRect = ctrl:getContentRect()
+    local tSize = api.gui.util.Size.new()
+    tSize.h = tRect.h
+    tSize.w = width
+    ctrl:setGravity(-1, -1)
+    ctrl:setMinimumSize(tSize)
+end
+
+local setSpacingText = function(spacing)
+    return string.format("%0.1f%s", spacing, _("METER"))
+end
+
+local createWindow = function()
+    local spacingText = api.gui.comp.TextView.new(_("SPACING"))
+    local spacingValue = api.gui.comp.TextView.new(setSpacingText(state.distance))
+    local spacingSlider = api.gui.comp.Slider.new(true)
+    local spacingLayout = api.gui.layout.BoxLayout.new("HORIZONTAL")
     
-    local arrow = gui.textView_create("roadtoolbox.distance.oneway.arrow", _("ARROW"))
-    local oneWay = gui.textView_create("roadtoolbox.distance.oneway.text", _("ONE_WAY"))
-    local oneWayButton = gui.button_create("roadtoolbox.distance.oneway", oneWay)
-    distLayout:addItem(arrow)
-    distLayout:addItem(oneWayButton)
+    spacingSlider:setStep(1)
+    spacingSlider:setMinimum(0)
+    spacingSlider:setMaximum(100)
+    spacingSlider:setValue(state.distance * 2, false)
+    setWidth(spacingSlider, 150)
+
+    spacingValue:setGravity(1, -1)
+    spacingLayout:setGravity(-1, -1)
+    spacingLayout:addItem(spacingText)
+    spacingLayout:addItem(spacingValue)
     
-    state.windows.distance = distValue
-    state.windows.oneway = oneWay
+    local oneWay = api.gui.comp.CheckBox.new(_("ONE_WAY"), "ui/design/components/checkbox_invalid.tga", "ui/design/components/checkbox_valid.tga")
+    oneWay:setSelected(state.oneWay, false)
     
-    distAddButton:onClick(function()
-        game.interface.sendScriptEvent("__roadtoolbox_", "distance", {step = 1})
+    local comp = api.gui.comp.Component.new("")
+    local layout = api.gui.layout.BoxLayout.new("VERTICAL")
+    layout:setId("roadtoolbox.layout")
+    comp:setLayout(layout)
+    
+    state.window = api.gui.comp.Window.new(_("TITLE"), comp)
+    state.window:setId("roadtoolbox.window")
+    layout:addItem(spacingLayout)
+    layout:addItem(spacingSlider)
+    layout:addItem(oneWay)
+    
+    spacingSlider:onValueChanged(function(value)
+        table.insert(state.fn, function()
+            spacingValue:setText(setSpacingText(value * 0.5))
+            game.interface.sendScriptEvent("__roadtoolbox__", "distance", {distance = value * 0.5})
+        end)
     end)
-    distSubButton:onClick(function()
-        game.interface.sendScriptEvent("__roadtoolbox_", "distance", {step = -1})
-    end)
-    oneWayButton:onClick(function()
-        game.interface.sendScriptEvent("__roadtoolbox_", "oneway", {})
-    end)
     
-    state.windows.window = gui.window_create("roadtoolbox.window", _("SPACING"), distLayout)
-    
-    local mainView = game.gui.getContentRect("mainView")
-    local mainMenuHeight = game.gui.getContentRect("mainMenuTopBar")[4] + game.gui.getContentRect("mainMenuBottomBar")[4]
-    local buttonX = game.gui.getContentRect("roadtoolbox.button")[1]
-    local size = game.gui.calcMinimumSize(state.windows.window.id)
-    local y = mainView[4] - size[2] - mainMenuHeight
-    
-    state.windows.window:onClose(function()
-        state.windows = {
-            window = false,
-            distance = false,
-            oneWay = false
-        }
-        state.showWindow = false
+    oneWay:onToggle(function()
+        table.insert(state.fn, function() 
+            game.interface.sendScriptEvent("__roadtoolbox__", "oneway", {})
+        end)
     end)
-    game.gui.window_setPosition(state.windows.window.id, buttonX, y)
+
+    state.window:onClose(function()state.window:setVisible(false, false) end)
+    
+    local mainView = api.gui.util.getById("mainView"):getContentRect().h
+    local mainMenuHeight = api.gui.util.getById("mainMenuTopBar"):getContentRect().h + api.gui.util.getById("mainMenuBottomBar"):getContentRect().h
+    local x = api.gui.util.getById("roadtoolbox.button"):getContentRect().x
+    local y = mainView - mainMenuHeight - state.window:calcMinimumSize().h
+
+    game.gui.window_setPosition("roadtoolbox.window", x, y)
 end
 
 local createComponents = function()
-    if (not state.button) then
+    if (not state.useLabel) then
         local label = gui.textView_create("roadtoolbox.lable", _("ROAD_TOOLBOX"))
-        state.button = gui.button_create("roadtoolbox.button", label)
+        local button = gui.button_create("roadtoolbox.button", label)
         
         state.useLabel = gui.imageView_create("roadtoolbox.use.text", "ui/shs/nouse.tga")
-        state.use = gui.button_create("roadtoolbox.use", state.useLabel)
+        local use = gui.button_create("roadtoolbox.use", state.useLabel)
         
         game.gui.boxLayout_addItem(
             "gameInfo.layout",
@@ -89,15 +103,21 @@ local createComponents = function()
         game.gui.boxLayout_addItem("gameInfo.layout", "roadtoolbox.button")
         game.gui.boxLayout_addItem("gameInfo.layout", "roadtoolbox.use")
         
-        state.use:onClick(function()
-                -- if state.use then
-                --     state.showWindow = false
-                -- end
-                game.interface.sendScriptEvent("__roadtoolbox_", "use", {})
+        use:onClick(function()
+                game.interface.sendScriptEvent("__roadtoolbox__", "use", {})
                 game.interface.sendScriptEvent("__edgeTool__", "off", {sender = "stb"})
         end)
-        state.button:onClick(function()
-            state.showWindow = state.use == 2 and not state.showWindow
+
+        button:onClick(function()
+            if state.window then
+                if state.use == 2 then
+                    state.window:setVisible(not state.window:isVisible(), false)
+                else
+                    state.window:setVisible(false, false)
+                end
+            elseif not state.window and state.use == 2 then
+                table.insert(state.fn, createWindow)
+            end
         end)
     end
 end
@@ -141,7 +161,7 @@ local function searchSharpEdge(map, newId, proposal)
     end
     
     local function traceBack(result, edge, length)
-        local len = coor.xyz(edge.comp.tangent0[1], edge.comp.tangent0[2], edge.comp.tangent0[3]):length()
+        local len = coor.new(edge.comp.tangent0):length()
         if (len < length) then
             local dest = edge.isBegin and edge.comp.node1 or edge.comp.node0
             local next = connected(dest, edge.entity, table.unpack(newId))
@@ -153,6 +173,9 @@ local function searchSharpEdge(map, newId, proposal)
             end
         else
             table.insert(result, edge)
+            if not result[1].isBegin then
+                result = func.rev(func.map(result, function(s) return func.with(s, {isBegin = not s.isBegin}) end)) -- Nearest edge must in the correct direction
+            end
             return result, length - len
         end
     end
@@ -188,15 +211,10 @@ local function searchSharpEdge(map, newId, proposal)
                             entity.comp.node0 = fst.isBegin and comp0.node0 or comp0.node1
                             entity.comp.node1 = lst.isBegin and comp1.node1 or comp1.node0
                             
-                            for i = 1, 3 do
-                                entity.comp.tangent0[i] = fst.isBegin and comp0.tangent0[i] or comp0.tangent1[i]
-                                entity.comp.tangent1[i] = lst.isBegin and comp1.tangent1[i] or comp1.tangent0[i]
-                            end
-                            
                             local pos0 = coor.new(game.interface.getEntity(entity.comp.node0).position)
                             local pos1 = coor.new(game.interface.getEntity(entity.comp.node1).position)
-                            local vec0 = coor.new(entity.comp.tangent0)
-                            local vec1 = coor.new(entity.comp.tangent1)
+                            local vec0 = coor.new(fst.isBegin and comp0.tangent0 or comp0.tangent1) * (fst.isBegin and 1 or -1)
+                            local vec1 = coor.new(lst.isBegin and comp1.tangent1 or comp1.tangent0) * (lst.isBegin and 1 or -1)
                             
                             local vec0, vec1 = calcVec(pos0, pos1, vec0, vec1)
                             
@@ -290,8 +308,7 @@ local buildSharp = function(newSegments, nodes)
             end
         end
         
-        local build = api.cmd.make.buildProposal(newProposal, nil)
-        build.ignoreErrors = true
+        local build = api.cmd.make.buildProposal(newProposal, nil, true)
         
         api.cmd.sendCommand(build, function(_) end)
     
@@ -303,18 +320,40 @@ local buildParallel = function(newSegments)
     local newNodes = {}
     local function newId() newIdCount = newIdCount + 1 return -newIdCount end
     local proposal = api.type.SimpleProposal.new()
-    for n, seg in ipairs(newSegments) do
+    
+    local streetEdge = api.engine.getComponent(newSegments[1], api.type.ComponentType.BASE_EDGE_STREET)
+    local refType = api.res.streetTypeRep.getFileName(streetEdge.streetType):match("res/config/street/(.+.lua)")
+    local ref = api.res.streetTypeRep.get(streetEdge.streetType)
+    
+    local streetType = state.oneWay and roadTarget[refType] or refType
+    local streetTypeIndex = api.res.streetTypeRep.find(streetType)
+    local street = api.res.streetTypeRep.get(streetTypeIndex)
+    local streetWidth = street.streetWidth + street.sidewalkWidth * 2
+    local refWidth = ref.streetWidth + ref.sidewalkWidth * 2
+
+    if (state.distance < refWidth) then
+        local segNodes = {}
         local map = api.engine.system.streetSystem.getNode2StreetEdgeMap()
+        for _, seg in ipairs(newSegments) do
+            local comp = api.engine.getComponent(seg, api.type.ComponentType.BASE_EDGE)
+            segNodes[comp.node0] = segNodes[comp.node0] and segNodes[comp.node0] + 1 or 1
+            segNodes[comp.node1] = segNodes[comp.node1] and segNodes[comp.node1] + 1 or 1
+        end
+        local checkNode = function(node)
+            if #map[node] == segNodes[node] and not func.contains(proposal.streetProposal.nodesToRemove, node) then
+                proposal.streetProposal.nodesToRemove[#proposal.streetProposal.nodesToRemove + 1] = node
+            end
+        end
+        for _, seg in ipairs(newSegments) do
+            local comp = api.engine.getComponent(seg, api.type.ComponentType.BASE_EDGE)
+            checkNode(comp.node0)
+            checkNode(comp.node1)
+            proposal.streetProposal.edgesToRemove[#proposal.streetProposal.edgesToRemove + 1] = seg
+        end
+    end
+    
+    for n, seg in ipairs(newSegments) do
         local comp = api.engine.getComponent(seg, api.type.ComponentType.BASE_EDGE)
-        local streetEdge = api.engine.getComponent(seg, api.type.ComponentType.BASE_EDGE_STREET)
-        local refType = api.res.streetTypeRep.getFileName(streetEdge.streetType):match("res/config/street/(.+.lua)")
-        local ref = api.res.streetTypeRep.get(streetEdge.streetType)
-        
-        local streetType = state.oneWay and roadTarget[refType] or refType
-        local streetTypeIndex = api.res.streetTypeRep.find(streetType)
-        local street = api.res.streetTypeRep.get(streetTypeIndex)
-        local streetWidth = street.streetWidth + street.sidewalkWidth * 2
-        local refWidth = ref.streetWidth + ref.sidewalkWidth * 2
 
         newNodes[n] = {}
         
@@ -367,8 +406,9 @@ local buildParallel = function(newSegments)
 
                 local catchNode = function(pos)
                     return pipe.new
-                    * game.interface.getEntities({pos = pos:toTuple(), radius = 1}, {type = "BASE_NODE"})
+                    * game.interface.getEntities({pos = pos:toTuple(), radius = streetWidth * 0.5}, {type = "BASE_NODE"})
                     * pipe.map(game.interface.getEntity)
+                    * pipe.filter(function(e) return not func.contains(proposal.streetProposal.nodesToRemove, e.id) end)
                     * pipe.sort(function(e) return (coor.new(e.position) - pos):length() end)
                     * (function(r) return #r > 0 and r[1].id or nil end)
                 end
@@ -397,15 +437,10 @@ local buildParallel = function(newSegments)
                 proposal.streetProposal.edgesToAdd[#proposal.streetProposal.edgesToAdd + 1] = entity
             end
             
-            if (state.distance < refWidth) then
-                if map[comp.node0] == 1 then proposal.streetProposal.nodesToRemove[#proposal.streetProposal.nodesToRemove + 1] = comp.node0 end
-                if map[comp.node1] == 1 then proposal.streetProposal.nodesToRemove[#proposal.streetProposal.nodesToRemove + 1] = comp.node1 end
-                proposal.streetProposal.edgesToRemove[1] = seg
-            end
         end
     end
-    local build = api.cmd.make.buildProposal(proposal, nil)
-    api.cmd.sendCommand(build, function(_) end)
+    local build = api.cmd.make.buildProposal(proposal, nil, false)
+    api.cmd.sendCommand(build, function(x)  end)
     
 end
 
@@ -416,7 +451,7 @@ local script = {
             if (name == "off") then
                 state.use = false
             end
-        elseif (id == "__roadtoolbox_") then
+        elseif (id == "__roadtoolbox__") then
             if (name == "use") then
                 if (state.use == false) then
                     state.use = 1
@@ -428,7 +463,7 @@ local script = {
             elseif (name == "oneway") then
                 state.oneWay = not state.oneWay
             elseif (name == "distance") then
-                state.distance = state.distance + param.step
+                state.distance = param.distance
             elseif (name == "sharp") then
                 buildSharp(param.newSegments, param.nodes)
             elseif (name == "parallel") then
@@ -441,9 +476,6 @@ local script = {
     end,
     load = function(data)
         if data then
-            if (state.use == 1 and data.use == 2) then
-                state.showWindow = true
-            end
             state.use = data.use or false
             state.distance = data.distance
             state.oneWay = data.oneWay
@@ -452,19 +484,13 @@ local script = {
     guiUpdate = function()
         createComponents()
         
-        if (state.showWindow and not state.windows.window) then
-            showWindow()
-        elseif (not state.showWindow and state.windows.window) then
-            state.windows.window:close()
-        elseif (state.use ~= 2 and (state.windows.window or state.showWindow)) then
-            state.windows.window:close()
+        if (state.use ~= 2 and state.window and state.window:isVisible()) then
+            state.window:close()
         end
         
-        if state.windows.window then
-            state.windows.distance:setText(string.format("%0.1f%s", state.distance, _("METER")))
-            state.windows.oneway:setText(state.oneWay and _("ONE_WAY") or _("KEEP"))
-        end
-        
+        for _, fn in ipairs(state.fn) do fn() end
+        state.fn = {}
+
         state.useLabel:setImage(
             state.use == 1 and "ui/shs/sharp.tga" or state.use == 2 and "ui/shs/parallel.tga" or "ui/shs/nouse.tga"
     )
@@ -490,11 +516,12 @@ local script = {
                 end
                 
                 if #newSegments > 0 then
-                    game.interface.sendScriptEvent("__roadtoolbox_", "parallel", {newSegments = newSegments})
+                    game.interface.sendScriptEvent("__roadtoolbox__", "parallel", {newSegments = newSegments})
                 end
             elseif
                 state.use == 1 and
                 proposal.addedSegments and #proposal.addedSegments > 0
+                and proposal.removedSegments and #proposal.addedSegments > #proposal.removedSegments
             then
                 local newSegments = {}
                 local nodes = {}
@@ -519,7 +546,7 @@ local script = {
                 end
                 
                 if (#extNodes == 2 and #func.filter(extNodes, pipe.select("isConnected")) > 0) then
-                    game.interface.sendScriptEvent("__roadtoolbox_", "sharp", {newSegments = newSegments, nodes = extNodes})
+                    game.interface.sendScriptEvent("__roadtoolbox__", "sharp", {newSegments = newSegments, nodes = extNodes})
                 end
             end
         end

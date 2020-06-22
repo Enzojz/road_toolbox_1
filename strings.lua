@@ -15,13 +15,15 @@ This mode helps you build roads parallelly.
 Just switch parallel mode and drag the road, the mod will convert them into two parallel roads afterward.
 There's option order the mod to convert the road to equivalant one-way roads or just generate parallel road of same type. There is also an option to change the spacing between two roads generated, please note if the spacing is larger that the original road created, the original raod will be kept after built.
 
-This mod works only for vanilla roads from the game and can be safely removed at any time.
-This mod may cause crashes after build, but with unidentified reason, I will try to make it perfect in the following time.
-(I though at first this mod can be done in one day, but in fact it took me 3 weeks becasue of such crashes)
+* This mod can be safely removed from gamesaves.
 
------------------------------------------
+Stay strong and united facing COVID-19!
 
-Stay home! #COVID19
+Changelogs:
+1.1 
+- Adaptation to the new API
+- New UI for the parallel roads
+- Compatibility to all streets and bridges
 ]]
 
 local descFR = [[Ce mod vous aide à construire des dispositions de route qui sont difficile ou impossible à faire avec le jeu original.
@@ -41,12 +43,15 @@ Ce mode vous aide à construire des routes en parallèle.
 Changez simplement de mode parallèle et faites glisser la route, le mod les convertira ensuite en deux routes parallèles.
 Il existe une option pour que le mod convertisse la route en routes à sens unique équivalentes ou génère simplement deux routes en parallèles du même type. Il y a aussi une option pour changer l'espacement entre deux routes générées, veuillez noter que si l'espacement est plus grand que la route d'origine créée, la route d'origine sera conservée après la construction.
 
-Ce mod ne fonctionne que pour les routes originales du jeu et peut être désactivé en toute sécurité à tout moment.
-Ce mod pourrait planter le jeux après la construction, avec des causes non-identifié, je vais éssyer de les corriger plus tard.
+* Ce mod pourrait être désactivé sans souci.
 
------------------------------------------
+Restons pridents! #COVID19
 
-Restons chez nous! #COVID19
+Changelogs:
+1.1 
+- Adaptation à la nouvelle api, les vieux défaillances sont régelées.
+- Nouvelle IHM pour les routes parallèles.
+- Compatibilité avec tous les routes et ponts.
 ]]
 
 local descCN = [[本模组可以帮助玩家建造原游戏无法或者很难建造的道路布局
@@ -65,8 +70,14 @@ local descCN = [[本模组可以帮助玩家建造原游戏无法或者很难建
 该模式可以在新建道路后将其自动转换为两条平行的道路。该模式下有一个选项，可以设定是直接创建两条相同类型的道路还是转换为同样宽度的单行道。此外还有一个选项用于设置平行道路的间距。
 注意如果平行道路间距大于原道路，则原道路会自动保留。
 
-本模组只对游戏原装道路有效，并且可以随时移除。
-本模组可能在建造道路后引发游戏崩溃，但是目前不清楚原因，我会在后续更新中解决这些问题。]]
+* 该模组可以安全地从存档中移除
+
+更新日志：
+1.1
+- 适配了新版的API
+- 改进了平行路的界面
+- 兼容了所有的道路和桥梁
+]]
 
 local descTC = [[本模組可以幫助玩家建造原遊戲無法或者很難建造的道路佈局
 目前有兩種功能：
@@ -84,8 +95,13 @@ local descTC = [[本模組可以幫助玩家建造原遊戲無法或者很難建
 該模式可以在新建道路後將其自動轉換為兩條平行的道路。該模式下有一個選項，可以設定是直接創建兩條相同類型的道路還是轉換為同樣寬度的單行道。此外還有一個選項用於設置平行道路的間距。
 注意如果平行道路間距大於原道路，則原道路會自動保留。
 
-本模組只對遊戲原裝道路有效，並且可以隨時移除。
-本模組可能在建造道路後引發遊戲崩潰，但是目前不清楚原因，我會在後續更新中解決這些問題。]]
+* 該模組可以安全地從存檔中移除
+
+更新日誌：
+1.1
+- 適配了新版的API
+- 改進了平行路的介面
+- 相容了所有的道路和橋樑]]
 
 function data()
     return {
@@ -95,9 +111,8 @@ function data()
             ROAD_TOOLBOX = "Road Toolbox",
             SPACING = "Spacing",
             METER = "m",
-            ARROW = "→",
-            ONE_WAY = "One Way",
-            KEEP = "Keep"
+            ONE_WAY = "Build as One Way (if possible)",
+            TITLE = "Parallel roads"
         },
         fr = {
             MOD_NAME = "Boîte à outil route",
@@ -105,9 +120,8 @@ function data()
             ROAD_TOOLBOX = "Boîte à outil route",
             SPACING = "Espacement",
             METER = "m",
-            ARROW = "→",
-            ONE_WAY = "Sens unique",
-            KEEP = "Conserver"
+            ONE_WAY = "Sens unique (si possible)",
+            TITLE = "Routes parallèles"
         },
         zh_CN = {
             MOD_NAME = "道路工具",
@@ -115,19 +129,17 @@ function data()
             ROAD_TOOLBOX = "道路工具",
             SPACING = "间距",
             METER = "米",
-            ARROW = "→",
-            ONE_WAY = "单行道",
-            KEEP = "保持"
+            ONE_WAY = "转换为单行道(若可能)",
+            TITLE = "平行道路"
         },
         zh_TW = {
             MOD_NAME = "道路工具",
             MOD_DESC = descTC,
             ROAD_TOOLBOX = "道路工具",
             SPACING = "間距",
-            METER = "米",
-            ARROW = "→",
-            ONE_WAY = "單行道",
-            KEEP = "保持"
+            METER = "公尺",
+            ONE_WAY = "轉換為單行道(若可能)",
+            TITLE = "平行道路"
         }
     }
 end
