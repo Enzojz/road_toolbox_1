@@ -12,14 +12,18 @@ The build comes with following restrictions:
 
 2. Parallel roads
 This mode helps you build roads parallelly.
-Just switch parallel mode and drag the road, the mod will convert them into two parallel roads afterward.
-There's option order the mod to convert the road to equivalant one-way roads or just generate parallel road of same type. There is also an option to change the spacing between two roads generated, please note if the spacing is larger that the original road created, the original raod will be kept after built.
+Just switch parallel mode and drag the road, the mod will create parallel roads automatically. In case of even number of roads to build, there will be one road more on left than the right.
 
 * This mod can be safely removed from gamesaves.
 
 Stay strong and united facing COVID-19!
 
 Changelogs:
+1.2
+- Intregration of the options into menu
+- Change of spacing range
+- Cancel of one-way conversion
+- Fix for some crashes
 1.1 
 - Adaptation to the new API
 - New UI for the parallel roads
@@ -40,14 +44,18 @@ Il existe les restrictions suivantes :
 
 2. Routes parallèles
 Ce mode vous aide à construire des routes en parallèle.
-Changez simplement de mode parallèle et faites glisser la route, le mod les convertira ensuite en deux routes parallèles.
-Il existe une option pour que le mod convertisse la route en routes à sens unique équivalentes ou génère simplement deux routes en parallèles du même type. Il y a aussi une option pour changer l'espacement entre deux routes générées, veuillez noter que si l'espacement est plus grand que la route d'origine créée, la route d'origine sera conservée après la construction.
+Changez simplement de mode parallèle et faites glisser la route, le mod créera ensuite les routes parallèles. Si le nombre de voie est en pair, il y aura une voie plus à gauche que à droite.
 
 * Ce mod pourrait être désactivé sans souci.
 
 Restons pridents! #COVID19
 
 Changelogs:
+1.2
+- Intrégration des options dans le menu
+- Modification de l'intervalle d'écart
+- Annulation de conversion automatique de voie sens-unique.
+- Correction des buges de plantage.
 1.1 
 - Adaptation à la nouvelle api, les vieux défaillances sont régelées.
 - Nouvelle IHM pour les routes parallèles.
@@ -67,12 +75,16 @@ local descCN = [[本模组可以帮助玩家建造原游戏无法或者很难建
 - 如果新建的匝道中间有和其他道路的交会，那么模组也会放弃建造。
 
 2. 平行路
-该模式可以在新建道路后将其自动转换为两条平行的道路。该模式下有一个选项，可以设定是直接创建两条相同类型的道路还是转换为同样宽度的单行道。此外还有一个选项用于设置平行道路的间距。
-注意如果平行道路间距大于原道路，则原道路会自动保留。
+该模式可以在新建道路后自动添加与其平行的道路，如果轨道数量为偶数，那么左侧会比右侧多一条。
 
 * 该模组可以安全地从存档中移除
 
 更新日志：
+1.2
+- 将选项集成到了菜单中
+- 修改了间距的可用范围
+- 需求了自动转换为单行道的功能
+- 修正了一些会导致游戏崩溃的错误
 1.1
 - 适配了新版的API
 - 改进了平行路的界面
@@ -92,12 +104,16 @@ local descTC = [[本模組可以幫助玩家建造原遊戲無法或者很難建
 - 如果新建的匝道中間有和其他道路的交會，那麼模組也會放棄建造。
 
 2. 平行路
-該模式可以在新建道路後將其自動轉換為兩條平行的道路。該模式下有一個選項，可以設定是直接創建兩條相同類型的道路還是轉換為同樣寬度的單行道。此外還有一個選項用於設置平行道路的間距。
-注意如果平行道路間距大於原道路，則原道路會自動保留。
+該模式可以在新建道路後自動添加與其平行的道路，如果軌道數量為偶數，那麼左側會比右側多一條。
 
 * 該模組可以安全地從存檔中移除
 
 更新日誌：
+1.2
+- 將選項集成到了功能表中
+- 修改了間距的可用範圍
+- 需求了自動轉換為單行道的功能
+- 修正了一些會導致遊戲崩潰的錯誤
 1.1
 - 適配了新版的API
 - 改進了平行路的介面
@@ -112,7 +128,9 @@ function data()
             SPACING = "Spacing",
             METER = "m",
             ONE_WAY = "Build as One Way (if possible)",
-            TITLE = "Parallel roads"
+            P_ROADS = "Parallel roads",
+            SHARP_XING = "Sharp bifurcation",
+            NB_ROADS = "Number of parallel roads"
         },
         fr = {
             MOD_NAME = "Boîte à outil route",
@@ -121,7 +139,9 @@ function data()
             SPACING = "Espacement",
             METER = "m",
             ONE_WAY = "Sens unique (si possible)",
-            TITLE = "Routes parallèles"
+            P_ROADS = "Voies parallèles",
+            SHARP_XING = "Bif. à petit angle",
+            NB_ROADS = "Nombre des voies parallèles"
         },
         zh_CN = {
             MOD_NAME = "道路工具",
@@ -130,7 +150,9 @@ function data()
             SPACING = "间距",
             METER = "米",
             ONE_WAY = "转换为单行道(若可能)",
-            TITLE = "平行道路"
+            P_ROADS = "平行道路",
+            SHARP_XING = "小角度匝道",
+            NB_ROADS = "平行道路数量"
         },
         zh_TW = {
             MOD_NAME = "道路工具",
@@ -139,7 +161,9 @@ function data()
             SPACING = "間距",
             METER = "公尺",
             ONE_WAY = "轉換為單行道(若可能)",
-            TITLE = "平行道路"
+            P_ROADS = "平行道路",
+            SHARP_XING = "小角度匝道",
+            NB_ROADS = "平行道路數量"
         }
     }
 end
